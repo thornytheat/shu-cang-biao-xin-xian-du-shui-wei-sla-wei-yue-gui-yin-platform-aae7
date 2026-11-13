@@ -28,6 +28,7 @@ from src.constants.limits import (
     IMPACT_WEIGHT_SEVERITY,
 )
 from src.models.freshness_probe import FreshnessProbe
+from src.models.probe_run import ProbeRun
 from src.models.sla_breach import SlaBreach
 from src.models.sla_policy import SlaPolicy
 from src.models.table_asset import TableAsset
@@ -53,6 +54,21 @@ class Candidate:
 def policies(db: Session) -> dict[str, SlaPolicy]:
     rows = list(db.scalars(select(SlaPolicy)))
     return {row.tier: row for row in rows}
+
+
+def _hidden_breach_dates(db: Session) -> set:
+    """存在巡检批次但尚未发布（running/failed）的业务日：这些日期的违约一律不进台账。
+
+    历史日（seed 基线，没有当日批次）与已发布批次日的违约保持可见，
+    保证"整批校验通过后一起发布违约台账"。
+    """
+    from src.constants.enums import RunStatus
+
+    return set(
+        db.scalars(
+            select(ProbeRun.run_date).where(ProbeRun.status != RunStatus.PUBLISHED.value)
+        ).all()
+    )
 
 
 def severity_for(ratio: float, consecutive: int, escalate_after: int) -> str:
@@ -187,10 +203,13 @@ def scan(
     policy_rows = policies(db)
     tables = table_service.list_tables(db)
     table_by_id = {table.id: table for table in tables}
+    hidden_dates = _hidden_breach_dates(db)
 
     all_probes = list(
         db.scalars(select(FreshnessProbe).order_by(FreshnessProbe.table_id, FreshnessProbe.probe_date))
     )
+    # 发布闸门：未发布批次日的探测不参与违约计算（含 include_planned 的计划值）
+    all_probes = [probe for probe in all_probes if probe.probe_date not in hidden_dates]
     latest_date = max((probe.probe_date for probe in all_probes), default=today)
     end = max(latest_date, today) if include_planned else latest_date
     start = end - timedelta(days=days - 1)
@@ -239,7 +258,7 @@ def scan(
                 streak = 0
             previous = probe.probe_date
 
-        if include_planned and today not in seen_dates:
+        if include_planned and today not in seen_dates and today not in hidden_dates:
             planned = fixture_source.planned_delay_seconds_for_code(table.code, 0)
             if planned is not None:
                 ratio = breach_core.ratio_of(planned, tolerance)
@@ -338,11 +357,12 @@ def query(
     keyword: str | None = None,
     limit: int = 200,
 ) -> list[tuple[SlaBreach, TableAsset]]:
+    hidden_dates = _hidden_breach_dates(db)
     stmt = (
         select(SlaBreach, TableAsset)
         .join(TableAsset, TableAsset.id == SlaBreach.table_id)
         .order_by(SlaBreach.breach_date.desc(), SlaBreach.impact_score.desc())
-        .limit(limit)
+        .limit(limit * 2)
     )
     if severity:
         stmt = stmt.where(SlaBreach.severity == severity)
@@ -353,7 +373,8 @@ def query(
     if keyword:
         like = f"%{keyword.strip()}%"
         stmt = stmt.where(TableAsset.code.like(like) | TableAsset.name.like(like) | SlaBreach.primary_cause.like(like))
-    return [(breach, table) for breach, table in db.execute(stmt).all()]
+    rows = [(breach, table) for breach, table in db.execute(stmt).all() if breach.breach_date not in hidden_dates]
+    return rows[:limit]
 
 
 def get(db: Session, breach_id: int) -> tuple[SlaBreach, TableAsset]:
@@ -387,7 +408,8 @@ def resolve(db: Session, breach: SlaBreach, actor_email: str, note: str | None) 
 
 
 def summary(db: Session) -> dict:
-    rows = list(db.scalars(select(SlaBreach)))
+    hidden_dates = _hidden_breach_dates(db)
+    rows = [row for row in db.scalars(select(SlaBreach)) if row.breach_date not in hidden_dates]
     counters = {item.value: 0 for item in BreachSeverity}
     statuses = {item.value: 0 for item in HandlingStatus}
     for row in rows:

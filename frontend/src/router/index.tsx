@@ -4,6 +4,7 @@ import { Board } from '../pages/Board';
 import { Breaches } from '../pages/Breaches';
 import { Login } from '../pages/Login';
 import { Policies } from '../pages/Policies';
+import { Runs } from '../pages/Runs';
 import { TableDetail } from '../pages/TableDetail';
 import { RequireAuth } from './guards';
 
@@ -20,6 +21,7 @@ export function AppRouter() {
           }
         >
           <Route path="/board" element={<Board />} />
+          <Route path="/runs" element={<Runs />} />
           <Route path="/tables/:code" element={<TableDetail />} />
           <Route path="/policies" element={<Policies />} />
           <Route path="/breaches" element={<Breaches />} />

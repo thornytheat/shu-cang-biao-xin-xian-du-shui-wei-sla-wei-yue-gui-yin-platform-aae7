@@ -70,6 +70,22 @@ class AttributionCause(str, Enum):
     UNDETERMINED = "undetermined"
 
 
+class RunStatus(str, Enum):
+    """巡检批次生命周期：进行中（断点可续跑）→ 已发布（整批可见）/ 失败（等续跑）。"""
+
+    RUNNING = "running"
+    PUBLISHED = "published"
+    FAILED = "failed"
+
+
+class ProbeItemStatus(str, Enum):
+    """批次内单表探测明细状态。"""
+
+    PENDING = "pending"
+    DONE = "done"
+    FAILED = "failed"
+
+
 SEVERITY_LABELS: dict[str, str] = {
     BreachSeverity.WARNING.value: "违约",
     BreachSeverity.SEVERE.value: "严重",
@@ -94,4 +110,16 @@ HANDLING_LABELS: dict[str, str] = {
     HandlingStatus.OPEN.value: "待认领",
     HandlingStatus.CLAIMED.value: "处置中",
     HandlingStatus.RESOLVED.value: "已复盘",
+}
+
+RUN_STATUS_LABELS: dict[str, str] = {
+    RunStatus.RUNNING.value: "进行中",
+    RunStatus.PUBLISHED.value: "已发布",
+    RunStatus.FAILED.value: "失败",
+}
+
+PROBE_ITEM_STATUS_LABELS: dict[str, str] = {
+    ProbeItemStatus.PENDING.value: "待采集",
+    ProbeItemStatus.DONE.value: "已完成",
+    ProbeItemStatus.FAILED.value: "失败",
 }

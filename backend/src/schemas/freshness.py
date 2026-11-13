@@ -85,6 +85,7 @@ class BoardOut(BaseModel):
     totals: BoardTotalsOut
     waterline: str | None = None
     calibration_days: int
+    latest_published: str | None = None
 
 
 class ProbePointOut(BaseModel):

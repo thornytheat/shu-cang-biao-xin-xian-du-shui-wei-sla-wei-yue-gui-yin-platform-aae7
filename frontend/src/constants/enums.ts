@@ -1,5 +1,15 @@
 /** 共享枚举（前端镜像）。后端唯一来源：backend/src/constants/enums.py */
-import type { BreachSeverity, Grade, HandlingStatus, Layer, ProbeStatus, Role, Tier } from '../types/models';
+import type {
+  BreachSeverity,
+  Grade,
+  HandlingStatus,
+  Layer,
+  ProbeItemStatus,
+  ProbeStatus,
+  Role,
+  RunStatus,
+  Tier,
+} from '../types/models';
 
 export const ROLE_LABELS: Record<Role, string> = {
   admin: '平台负责人',
@@ -55,6 +65,18 @@ export const HANDLING_LABELS: Record<HandlingStatus, string> = {
   open: '待认领',
   claimed: '处置中',
   resolved: '已复盘',
+};
+
+export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
+  running: '进行中',
+  published: '已发布',
+  failed: '失败',
+};
+
+export const PROBE_ITEM_STATUS_LABELS: Record<ProbeItemStatus, string> = {
+  pending: '待采集',
+  done: '已完成',
+  failed: '失败',
 };
 
 /** 三色灯 → CSS 类名 */

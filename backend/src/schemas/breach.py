@@ -57,20 +57,54 @@ class DetectResponse(BaseModel):
     summary: dict
 
 
+class ProbeRunItemOut(BaseModel):
+    table_code: str
+    ordinal: int
+    status: str
+    attempts: int
+    error_message: str | None = None
+
+
 class ProbeRunResponse(BaseModel):
+    """巡检批次（含状态机/断点/发布信息）。进行中与失败时 breaches 为 None。"""
+
+    id: int
     run_date: str
-    created: int
-    updated: int
-    total: int
-    missing: int
-    unknown: int
-    late: int
-    early: int
-    ok: int
+    status: str
+    status_label: str
+    triggered_by: str
+    trigger_source: str
+    total_tables: int
+    completed_tables: int
+    failed_tables: int
+    progress_pct: int
+    last_table_code: str | None = None
+    created_count: int
+    missing_count: int
+    unknown_count: int
+    late_count: int
     red_tables: list[str]
     red_count: int
     duration_ms: int
-    waterline: str
+    fail_reason: str | None = None
+    last_error: str | None = None
+    heartbeat_at: str | None = None
+    started_at: str | None = None
+    finished_at: str | None = None
+    published_at: str | None = None
+    created_at: str | None = None
+    items: list[ProbeRunItemOut] | None = None
+    # 兼容旧看板字段
+    created: int = 0
+    updated: int = 0
+    total: int = 0
+    missing: int = 0
+    unknown: int = 0
+    late: int = 0
+    early: int = 0
+    ok: int = 0
+    waterline: str | None = None
+    idempotent: bool = False
     breaches: dict | None = None
 
 
@@ -90,6 +124,13 @@ class ProbeRowOut(BaseModel):
 
 class ProbeStatusOut(BaseModel):
     today: str
+    # 仅当今日批次已发布才为 True（进行中/失败不视为已巡检）
     probed_today: bool
     run: dict | None = None
     latest: dict | None = None
+    published_waterline: str | None = None
+
+
+class ProbeRunListOut(BaseModel):
+    items: list[dict]
+    total: int

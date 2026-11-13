@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { breachesApi } from '../api/breaches';
+import { probesApi } from '../api/probes';
 import { tablesApi } from '../api/tables';
 import { DelayCurve } from '../components/common/DelayCurve';
 import { EmptyState, ErrorState, LoadingBlock } from '../components/common/EmptyState';
+import { RunStatusBadge } from '../components/common/RunStatusBadge';
 import { ConsecutiveTag, SeverityTag, StatusTag, TierTag } from '../components/common/SeverityTag';
 import { TierLamp } from '../components/common/TierLamp';
 import { WaterBar } from '../components/common/WaterBar';
@@ -22,6 +24,7 @@ export function TableDetail() {
   const { toast } = useToasts();
   const series = useAsync(() => tablesApi.series(code, 30), [code]);
   const breaches = useAsync(() => breachesApi.list({ q: code }), [code]);
+  const probeStatus = useAsync(() => probesApi.status(), []);
 
   const [clock, setClock] = useState('');
   const [reports, setReports] = useState<number>(0);
@@ -110,6 +113,20 @@ export function TableDetail() {
           ) : null}
         </div>
       </section>
+
+      {probeStatus.data?.run && probeStatus.data.run.status !== 'published' ? (
+        <div className={`run-banner banner-${probeStatus.data.run.status}`}>
+          <div className="run-banner-head">
+            <span className="run-banner-title">今日巡检尚未发布</span>
+            <RunStatusBadge status={probeStatus.data.run.status} label={probeStatus.data.run.status_label} />
+            <span className="run-banner-sub">
+              本页仅展示已发布批次与历史基线；进行中/失败批次的半成品数据不会出现在曲线与水位中
+              （断点 {probeStatus.data.run.last_table_code ?? '—'}，
+              完成 {probeStatus.data.run.completed_tables}/{probeStatus.data.run.total_tables}）
+            </span>
+          </div>
+        </div>
+      ) : null}
 
       <div className="detail-grid">
         <section className="section" style={{ gap: 12 }}>

@@ -27,6 +27,13 @@ class Settings(BaseSettings):
     app_timezone_offset_minutes: int = 480
     calibration_days: int = 30
 
+    # ---- 巡检批次：断点续跑 / 发布闸门 ----
+    # 单表采集超时秒数；running 批次超过 RUN_STALE_SECONDS 无心跳视为 worker 崩溃可接管
+    probe_table_timeout_seconds: int = 30
+    run_stale_seconds: int = 300
+    # 排障演练：命中的表 code 采集失败（逗号分隔），默认空串=不启用
+    probe_fail_tables: str = ""
+
     @property
     def database_url(self) -> str:
         return (

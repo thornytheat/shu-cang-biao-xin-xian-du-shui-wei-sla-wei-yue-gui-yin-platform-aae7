@@ -36,3 +36,15 @@ ESCALATE_AFTER_MAX = 7
 
 # 限流固定窗口
 RATE_WINDOW_SECONDS = 60
+
+# ---- 巡检批次（断点续跑 / 发布闸门）----
+# 单表采集超时默认秒数（可由 settings.probe_table_timeout_seconds / 环境变量覆盖）：
+# 超时即把该表标记为 failed、整批进入 failed，等待续跑（不中断整批已完成的成果）
+PROBE_TABLE_TIMEOUT_SECONDS = 30
+# 批次心跳过期默认秒数（可由 settings.run_stale_seconds 覆盖）：
+# running 超过该时长没有心跳，视为 worker 崩溃，可被下一次触发安全接管
+RUN_STALE_SECONDS = 300
+# 心跳刷新间隔（每处理 N 张表落一次心跳/断点）
+RUN_HEARTBEAT_EVERY = 20
+# 批次最多保留的历史条数
+RUN_HISTORY_LIMIT = 30

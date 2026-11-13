@@ -95,17 +95,51 @@ CREATE TABLE IF NOT EXISTS sla_breaches (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS probe_runs (
-  id              INT AUTO_INCREMENT PRIMARY KEY,
-  run_date        DATE NOT NULL UNIQUE,
-  triggered_by    VARCHAR(160) NOT NULL,
-  trigger_source  VARCHAR(16) NOT NULL DEFAULT 'api',
-  created_count   INT NOT NULL DEFAULT 0,
-  missing_count   INT NOT NULL DEFAULT 0,
-  unknown_count   INT NOT NULL DEFAULT 0,
-  late_count      INT NOT NULL DEFAULT 0,
-  red_tables      JSON NULL,
-  duration_ms     INT NOT NULL DEFAULT 0,
-  created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  run_date          DATE NOT NULL UNIQUE,
+  status            VARCHAR(12) NOT NULL DEFAULT 'running' COMMENT 'running/published/failed',
+  triggered_by      VARCHAR(160) NOT NULL,
+  trigger_source    VARCHAR(16) NOT NULL DEFAULT 'api' COMMENT 'api/beat/seed',
+  total_tables      INT NOT NULL DEFAULT 0 COMMENT '本批应采集表数',
+  completed_tables  INT NOT NULL DEFAULT 0 COMMENT '断点：已完成表数',
+  failed_tables     INT NOT NULL DEFAULT 0 COMMENT '失败表数，续跑重试',
+  last_table_code   VARCHAR(80) NULL COMMENT '最后完成的表（断点位置）',
+  created_count     INT NOT NULL DEFAULT 0,
+  missing_count     INT NOT NULL DEFAULT 0,
+  unknown_count     INT NOT NULL DEFAULT 0,
+  late_count        INT NOT NULL DEFAULT 0,
+  red_tables        JSON NULL,
+  duration_ms       INT NOT NULL DEFAULT 0,
+  fail_reason       VARCHAR(255) NULL COMMENT '最近一次失败原因',
+  last_error        TEXT NULL,
+  heartbeat_at      DATETIME NULL COMMENT '最近断点心跳',
+  started_at        DATETIME NULL,
+  finished_at       DATETIME NULL,
+  published_at      DATETIME NULL COMMENT '整批发布时间',
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  KEY idx_probe_runs_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS probe_run_items (
+  id             INT AUTO_INCREMENT PRIMARY KEY,
+  run_id         INT NOT NULL,
+  table_id       INT NOT NULL,
+  table_code     VARCHAR(80) NOT NULL,
+  ordinal        INT NOT NULL DEFAULT 0 COMMENT '批次内顺序，从 0 开始',
+  status         VARCHAR(12) NOT NULL DEFAULT 'pending' COMMENT 'pending/done/failed',
+  attempts       INT NOT NULL DEFAULT 0,
+  error_message  TEXT NULL,
+  started_at     DATETIME NULL,
+  finished_at    DATETIME NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_run_item_table (run_id, table_id),
+  KEY idx_run_item_run (run_id),
+  KEY idx_run_item_table (table_id),
+  KEY idx_run_item_status (status),
+  CONSTRAINT fk_run_item_run FOREIGN KEY (run_id) REFERENCES probe_runs(id) ON DELETE CASCADE,
+  CONSTRAINT fk_run_item_table FOREIGN KEY (table_id) REFERENCES table_assets(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS audit_logs (

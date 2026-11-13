@@ -13,3 +13,16 @@ class AppError(Exception):
         self.detail = detail
         self.message = ERROR_CODES.get(code, code)
         super().__init__(self.message)
+
+
+class ProbeCollectionError(Exception):
+    """单表采集失败（超时 / 取数异常）。
+
+    不中断整批：捕获后把对应明细标记 failed、批次挂起，等待断点续跑。
+    """
+
+    def __init__(self, table_code: str, reason: str) -> None:
+        self.table_code = table_code
+        self.reason = reason
+        super().__init__(f"probe collection failed for {table_code}: {reason}")
+

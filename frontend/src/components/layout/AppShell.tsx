@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { probesApi } from '../../api/probes';
+import { RunStatusBadge } from '../common/RunStatusBadge';
 import { ROLE_LABELS } from '../../constants/enums';
 import { NAV_ITEMS, PAGE_TITLES, SHIFT } from '../../constants/ui';
 import { useAsync } from '../../hooks/useAsync';
@@ -7,7 +8,6 @@ import { useAuth } from '../../hooks/useAuth';
 import { useClock } from '../../hooks/useClock';
 import { Toasts } from '../common/Toasts';
 import { shortDateTime } from '../../utils/format';
-
 /** 外壳：左侧值班栏 + 顶部挂板条 + 内容区。所有业务页共用。 */
 export function AppShell() {
   const { user, logout } = useAuth();
@@ -20,8 +20,8 @@ export function AppShell() {
     PAGE_TITLES[location.pathname] ??
     (location.pathname.startsWith('/tables/') ? '表详情 · 延迟曲线与上游链' : 'FRESHSLA');
 
-  const todayProbed = status.data?.probed_today ?? false;
-  const waterline = String(status.data?.latest?.run_date ?? status.data?.today ?? '—');
+  const todayRun = status.data?.run ?? null;
+  const waterline = String(status.data?.published_waterline ?? status.data?.today ?? '—');
 
   return (
     <div className="shell">
@@ -108,20 +108,26 @@ export function AppShell() {
           <div className="waterline">
             <span className="mono-label">水位</span>
             <b>{waterline}</b>
-            <span
-              className="tag"
-              style={{
-                color: todayProbed ? 'var(--lamp-green)' : 'var(--lamp-yellow)',
-                borderColor: todayProbed
-                  ? 'oklch(0.742 0.088 154 / 0.45)'
-                  : 'oklch(0.822 0.098 92 / 0.45)',
-              }}
-            >
-              {todayProbed ? '今日已巡检' : '今日未巡检'}
-            </span>
-            {status.data?.run ? (
+            {todayRun ? (
+              <RunStatusBadge status={todayRun.status} label={`今日${todayRun.status_label}`} />
+            ) : (
+              <span
+                className="tag"
+                style={{
+                  color: 'var(--lamp-yellow)',
+                  borderColor: 'oklch(0.822 0.098 92 / 0.45)',
+                }}
+              >
+                今日未巡检
+              </span>
+            )}
+            {todayRun && todayRun.status !== 'published' ? (
               <span className="num" style={{ color: 'var(--ink-500)', fontSize: 11 }}>
-                {shortDateTime(status.data.run.created_at)} · {status.data.run.duration_ms}ms
+                进度 {todayRun.completed_tables}/{todayRun.total_tables} · 看板仅展示已发布数据
+              </span>
+            ) : todayRun ? (
+              <span className="num" style={{ color: 'var(--ink-500)', fontSize: 11 }}>
+                {shortDateTime(todayRun.published_at)} 发布 · {todayRun.duration_ms}ms
               </span>
             ) : null}
           </div>

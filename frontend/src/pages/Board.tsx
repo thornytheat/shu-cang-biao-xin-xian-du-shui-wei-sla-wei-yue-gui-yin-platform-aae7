@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { breachesApi } from '../api/breaches';
 import { probesApi } from '../api/probes';
 import { tablesApi } from '../api/tables';
 import { EmptyState, ErrorState, LoadingBlock } from '../components/common/EmptyState';
+import { RunBanner } from '../components/common/RunBanner';
+import { RunStatusBadge } from '../components/common/RunStatusBadge';
 import { TierLamp } from '../components/common/TierLamp';
 import { WaterBar } from '../components/common/WaterBar';
 import { GRADE_HINTS, LAYER_LABELS, TIER_LABELS, TIER_ORDER } from '../constants/enums';
@@ -16,8 +18,10 @@ import { describeError, permissionHint } from '../utils/errorMessage';
 import { formatMinutes, formatRatio, trimZero } from '../utils/format';
 
 const GRADE_ORDER: Grade[] = ['red', 'yellow', 'green', 'unknown'];
+/** 进行中/失败批次的轮询间隔：让值班看到断点实时推进，发布后自动停止 */
+const RUN_POLL_MS = 3000;
 
-/** 表健康看板：P0/P1/P2 三栏 + 水位条 + 三色灯；顶部可运行今日探测。 */
+/** 表健康看板：P0/P1/P2 三栏 + 水位条 + 三色灯；巡检按批次断点续跑、整批发布。 */
 export function Board() {
   const { user } = useAuth();
   const { toast } = useToasts();
@@ -35,20 +39,56 @@ export function Board() {
 
   const totals = board?.totals;
   const breachSummary = summaryState.data;
+  const currentRun = runResult ?? statusState.data?.run ?? null;
+  // 仅"进行中"才轮询（批次在推进）；failed 是等人工续跑的稳定态，不做无意义轮询
+  const isRunAdvancing = currentRun?.status === 'running';
 
-  const runLabel = useMemo(() => (running ? '巡检中…' : '运行今日探测'), [running]);
+  const runLabel = useMemo(() => {
+    if (running) return '续跑中…';
+    if (currentRun?.status === 'failed') return '从断点续跑';
+    if (currentRun?.status === 'running') return '巡检进行中';
+    return '运行今日探测';
+  }, [running, currentRun?.status]);
+
+  // 批次进行中轮询状态；发布/失败后自动停止，发布时刷新看板/台账
+  useEffect(() => {
+    if (!isRunAdvancing) return undefined;
+    const timer = setInterval(() => {
+      probesApi
+        .status()
+        .then((payload) => {
+          if (payload.run) setRunResult(payload.run);
+          if (payload.run?.status === 'published') {
+            boardState.reload();
+            summaryState.reload();
+            statusState.reload();
+          }
+        })
+        .catch(() => undefined);
+    }, RUN_POLL_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunAdvancing, currentRun?.status]);
 
   async function onRun() {
     setRunning(true);
     try {
       const result = await probesApi.run();
       setRunResult(result);
-      toast(
-        `巡检完成：新增 ${result.created} 条、缺失 ${result.missing} 条、红灯 ${result.red_count} 张`,
-        'ok',
-      );
-      boardState.reload();
-      summaryState.reload();
+      if (result.status === 'published') {
+        toast(
+          result.idempotent
+            ? `巡检 ${result.run_date} 已发布（重复触发，未重复采集）`
+            : `巡检已发布：完成 ${result.completed_tables}/${result.total_tables}，红灯 ${result.red_count} 张`,
+          'ok',
+        );
+        boardState.reload();
+        summaryState.reload();
+      } else if (result.status === 'failed') {
+        toast(`批次挂起于 ${result.last_table_code ?? '—'}：${result.fail_reason ?? '采集失败'}，可从断点续跑`, 'error');
+      } else {
+        toast(`巡检进行中：已完成 ${result.completed_tables}/${result.total_tables}`, 'ok');
+      }
       statusState.reload();
     } catch (err) {
       toast(`${describeError(err)}｜${permissionHint('probe:run')}`, 'error');
@@ -63,7 +103,8 @@ export function Board() {
         <div className="section-head">
           <h2>今日巡检</h2>
           <span className="count num">
-            {statusState.data?.today ?? '—'} · {statusState.data?.probed_today ? '已巡检' : '未巡检'}
+            {statusState.data?.today ?? '—'} ·{' '}
+            {statusState.data?.probed_today ? '已发布' : currentRun ? `${currentRun.status_label}` : '未巡检'}
           </span>
           <span className="spacer" style={{ flex: 1 }} />
           <div className="inline-actions">
@@ -87,8 +128,8 @@ export function Board() {
               type="button"
               className={canRun ? 'btn btn-primary' : 'btn'}
               onClick={onRun}
-              disabled={running}
-              title={canRun ? '跑一次 40 张表的巡检并自动检测违约' : `${permissionHint('probe:run')}（点击可验证后端 403）`}
+              disabled={running || currentRun?.status === 'running'}
+              title={canRun ? '跑一次 40 张表的巡检；失败可从断点续跑，整批通过后统一发布' : `${permissionHint('probe:run')}（点击可验证后端 403）`}
             >
               {runLabel}
             </button>
@@ -98,11 +139,16 @@ export function Board() {
         <div className="inline-actions" style={{ fontSize: 12, color: 'var(--ink-400)' }}>
           <span className="num">水线 {board?.waterline ?? '—'}</span>
           <span>·</span>
+          <span>最近发布 {board?.latest_published ?? '—'}</span>
+          <span>·</span>
           <span>分位基线窗口 {board?.calibration_days ?? 30} 天</span>
           <span>·</span>
           <span>违约 {breachSummary?.total ?? '—'} 起（严重 {breachSummary?.severe_total ?? '—'} 起）</span>
           <span>·</span>
           <span>红灯 {totals?.red ?? '—'} 张 / 待认领 {breachSummary?.by_status?.open ?? '—'} 起</span>
+          {currentRun && currentRun.status !== 'published' ? (
+            <RunStatusBadge status={currentRun.status} label={`本批${currentRun.status_label}：看板仅展示已发布数据`} />
+          ) : null}
           {!canRun ? (
             <span className="tag" style={{ color: 'var(--lamp-yellow)' }}>
               当前角色只读：探测由 admin/ops 触发
@@ -110,45 +156,7 @@ export function Board() {
           ) : null}
         </div>
 
-        {runResult ? (
-          <div
-            className="section"
-            style={{ borderColor: 'oklch(0.742 0.088 154 / 0.35)', background: 'oklch(0.742 0.088 154 / 0.06)' }}
-          >
-            <div className="section-head">
-              <h3 style={{ color: 'var(--lamp-green)' }}>巡检结果 · {runResult.run_date}</h3>
-              <span className="count num">{runResult.duration_ms} ms</span>
-            </div>
-            <div className="inline-actions" style={{ fontSize: 12.5 }}>
-              <span>
-                新增 <b className="num">{runResult.created}</b> 条
-              </span>
-              <span>
-                缺失 <b className="num" style={{ color: 'var(--lamp-yellow)' }}>{runResult.missing}</b> 条 → unknown
-              </span>
-              <span>
-                迟到 <b className="num">{runResult.late}</b> 条
-              </span>
-              <span>
-                早到 <b className="num">{runResult.early}</b> 条
-              </span>
-              <span>
-                红灯 <b className="num" style={{ color: 'var(--lamp-red)' }}>{runResult.red_count}</b> 张
-              </span>
-              {runResult.red_tables.length > 0 ? (
-                <span className="num" style={{ color: 'var(--ink-400)' }}>
-                  {runResult.red_tables.join(' / ')}
-                </span>
-              ) : null}
-              {runResult.breaches ? (
-                <span>
-                  违约检测：扫描 {runResult.breaches.scanned} · 新增 {runResult.breaches.created} · 更新{' '}
-                  {runResult.breaches.updated}
-                </span>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
+        {currentRun ? <RunBanner run={currentRun} busy={running} onResume={canRun ? onRun : undefined} /> : null}
       </section>
 
       {boardState.error ? (

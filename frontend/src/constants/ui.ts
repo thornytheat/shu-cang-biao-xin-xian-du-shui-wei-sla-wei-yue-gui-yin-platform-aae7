@@ -1,8 +1,9 @@
 /** UI 常量：导航、班次、页面文案。 */
 export const NAV_ITEMS = [
   { to: '/board', index: '01', label: '表健康看板', hint: 'P0/P1/P2 分栏 + 水位条' },
-  { to: '/policies', index: '02', label: 'SLA 策略', hint: '容忍值 / 升级规则 / 试算' },
-  { to: '/breaches', index: '03', label: '违约台账', hint: '筛选 / 归因 / 认领 / 导出' },
+  { to: '/runs', index: '02', label: '巡检批次', hint: '断点续跑 / 进行中 / 已发布 / 失败' },
+  { to: '/policies', index: '03', label: 'SLA 策略', hint: '容忍值 / 升级规则 / 试算' },
+  { to: '/breaches', index: '04', label: '违约台账', hint: '筛选 / 归因 / 认领 / 导出' },
 ];
 
 export const SHIFT = {
@@ -18,6 +19,7 @@ export const DOMAIN = 'freshsla.io';
 
 export const PAGE_TITLES: Record<string, string> = {
   '/board': '表健康看板',
+  '/runs': '巡检批次（断点续跑 / 发布状态）',
   '/policies': 'SLA 策略管理',
   '/breaches': 'SLA 违约台账',
 };

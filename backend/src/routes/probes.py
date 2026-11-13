@@ -4,10 +4,12 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from src.controllers import probe_controller
-from src.schemas.breach import ProbeRunResponse, ProbeStatusOut
+from src.schemas.breach import ProbeRunListOut, ProbeRunResponse, ProbeStatusOut
 
 router = APIRouter(prefix="/probes", tags=["probes"])
 
 router.post("/run", response_model=ProbeRunResponse)(probe_controller.run_probes)
 router.get("/status", response_model=ProbeStatusOut)(probe_controller.probe_status)
+router.get("/runs", response_model=ProbeRunListOut)(probe_controller.list_runs)
+router.get("/runs/{run_id}", response_model=ProbeRunResponse)(probe_controller.get_run)
 router.get("")(probe_controller.list_probes)

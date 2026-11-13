@@ -5,6 +5,8 @@ export type Grade = 'green' | 'yellow' | 'red' | 'unknown';
 export type ProbeStatus = 'ok' | 'late' | 'early' | 'missing';
 export type BreachSeverity = 'warning' | 'severe' | 'escalated';
 export type HandlingStatus = 'open' | 'claimed' | 'resolved';
+export type RunStatus = 'running' | 'published' | 'failed';
+export type ProbeItemStatus = 'pending' | 'done' | 'failed';
 
 export interface User {
   id: number;
@@ -96,6 +98,7 @@ export interface Board {
   totals: { tables: number; red: number; yellow: number; green: number; unknown: number };
   waterline: string | null;
   calibration_days: number;
+  latest_published: string | null;
 }
 
 export interface ProbePoint {
@@ -250,8 +253,42 @@ export interface BreachList {
   filters: Record<string, string | null>;
 }
 
+export interface ProbeRunItem {
+  table_code: string;
+  ordinal: number;
+  status: ProbeItemStatus;
+  attempts: number;
+  error_message: string | null;
+}
+
 export interface ProbeRunResult {
+  id: number;
   run_date: string;
+  status: RunStatus;
+  status_label: string;
+  triggered_by: string;
+  trigger_source: string;
+  total_tables: number;
+  completed_tables: number;
+  failed_tables: number;
+  progress_pct: number;
+  last_table_code: string | null;
+  created_count: number;
+  missing_count: number;
+  unknown_count: number;
+  late_count: number;
+  red_tables: string[];
+  red_count: number;
+  duration_ms: number;
+  fail_reason: string | null;
+  last_error: string | null;
+  heartbeat_at: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  published_at: string | null;
+  created_at: string | null;
+  items?: ProbeRunItem[] | null;
+  /* 兼容旧看板字段 */
   created: number;
   updated: number;
   total: number;
@@ -260,10 +297,8 @@ export interface ProbeRunResult {
   late: number;
   early: number;
   ok: number;
-  red_tables: string[];
-  red_count: number;
-  duration_ms: number;
-  waterline: string;
+  waterline: string | null;
+  idempotent: boolean;
   breaches: {
     scanned: number;
     created: number;
@@ -277,18 +312,16 @@ export interface ProbeRunResult {
 
 export interface ProbeStatusPayload {
   today: string;
+  /** 仅当今日批次已发布才为 true（进行中/失败不视为已巡检） */
   probed_today: boolean;
-  run: {
-    run_date: string;
-    triggered_by: string;
-    created_count: number;
-    missing_count: number;
-    late_count: number;
-    red_tables: string[];
-    duration_ms: number;
-    created_at: string | null;
-  } | null;
-  latest: Record<string, unknown> | null;
+  run: ProbeRunResult | null;
+  latest: ProbeRunResult | null;
+  published_waterline: string | null;
+}
+
+export interface ProbeRunList {
+  items: ProbeRunResult[];
+  total: number;
 }
 
 export interface AuditEntry {

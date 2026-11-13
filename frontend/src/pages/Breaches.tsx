@@ -1,7 +1,9 @@
 import { Fragment, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { breachesApi } from '../api/breaches';
+import { probesApi } from '../api/probes';
 import { EmptyState, ErrorState, LoadingBlock } from '../components/common/EmptyState';
+import { RunStatusBadge } from '../components/common/RunStatusBadge';
 import { ConsecutiveTag, SeverityTag, StatusTag, TierTag } from '../components/common/SeverityTag';
 import { HANDLING_LABELS, SEVERITY_LABELS, SEVERITY_ORDER } from '../constants/enums';
 import { can } from '../constants/roles';
@@ -17,6 +19,7 @@ export function Breaches() {
   const { user } = useAuth();
   const { toast } = useToasts();
   const [searchParams] = useSearchParams();
+  const probeStatus = useAsync(() => probesApi.status(), []);
 
   const [severity, setSeverity] = useState<BreachSeverity | ''>('');
   const [status, setStatus] = useState<HandlingStatus | ''>('');
@@ -124,6 +127,20 @@ export function Breaches() {
             </button>
           </div>
         </div>
+
+        {probeStatus.data?.run && probeStatus.data.run.status !== 'published' ? (
+          <div className={`run-banner banner-${probeStatus.data.run.status}`}>
+            <div className="run-banner-head">
+              <span className="run-banner-title">今日批次{probeStatus.data.run.status_label}，台账未发布今日数据</span>
+              <RunStatusBadge status={probeStatus.data.run.status} label={probeStatus.data.run.status_label} />
+              <span className="run-banner-sub">
+                违约台账只呈现已发布批次；当前半成品不会计入下方统计，避免把半批水位当成整体已恢复
+                （断点 {probeStatus.data.run.last_table_code ?? '—'}，
+                完成 {probeStatus.data.run.completed_tables}/{probeStatus.data.run.total_tables}）
+              </span>
+            </div>
+          </div>
+        ) : null}
 
         <div className="filters">
           <div className="field">

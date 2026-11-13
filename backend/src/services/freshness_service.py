@@ -17,9 +17,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from src.config.settings import settings
-from src.constants.enums import Grade, ProbeStatus, Tier
+from src.constants.enums import Grade, ProbeStatus, RunStatus, Tier
 from src.constants.limits import DEFAULT_TOLERANCE
 from src.models.freshness_probe import FreshnessProbe
+from src.models.probe_run import ProbeRun
 from src.models.sla_policy import SlaPolicy
 from src.models.table_asset import TableAsset
 from src.services import freshness_core, table_service
@@ -31,6 +32,24 @@ def policy_map(db: Session) -> dict[str, int]:
     for tier in Tier:
         mapping.setdefault(tier.value, DEFAULT_TOLERANCE[tier.value])
     return mapping
+
+
+def published_run_dates(db: Session) -> set:
+    """所有已发布巡检批次的业务日（看板/详情/台账的唯一可见来源）。"""
+    return set(
+        db.scalars(
+            select(ProbeRun.run_date).where(ProbeRun.status == RunStatus.PUBLISHED.value)
+        ).all()
+    )
+
+
+def visible_probe_dates(db: Session) -> set:
+    """可对外展示的探测业务日 = 已发布批次日。
+
+    seed 历史探测（source=seed）属于基线数据，调用方按 source 单独放行；
+    巡检（source=probe）只有整批发布后才可见，进行中/失败批次的半成品不上看板。
+    """
+    return published_run_dates(db)
 
 
 def load_probes(
@@ -48,10 +67,20 @@ def load_probes(
     if end is not None:
         stmt = stmt.where(FreshnessProbe.probe_date <= end)
     stmt = stmt.order_by(FreshnessProbe.table_id, FreshnessProbe.probe_date)
+    visible_dates = visible_probe_dates(db)
     grouped: dict[int, list[FreshnessProbe]] = {}
     for probe in db.scalars(stmt):
+        if not _is_visible(probe, visible_dates):
+            continue
         grouped.setdefault(probe.table_id, []).append(probe)
     return grouped
+
+
+def _is_visible(probe: FreshnessProbe, visible_dates: set) -> bool:
+    """发布闸门：seed 基线数据始终可见；巡检探测仅在所属业务日批次已发布后可见。"""
+    if probe.source == "seed":
+        return True
+    return probe.probe_date in visible_dates
 
 
 def probes_for_table(db: Session, table_id: int, days: int | None = None) -> list[FreshnessProbe]:
@@ -61,7 +90,7 @@ def probes_for_table(db: Session, table_id: int, days: int | None = None) -> lis
         .where(FreshnessProbe.table_id == table_id)
         .order_by(FreshnessProbe.probe_date)
     )
-    rows = list(db.scalars(stmt))
+    rows = [row for row in db.scalars(stmt) if _is_visible(row, visible_probe_dates(db))]
     if not rows:
         return []
     cutoff = rows[-1].probe_date - timedelta(days=calibrate + 1)
@@ -147,7 +176,11 @@ def board(db: Session, *, layer: str | None = None, keyword: str | None = None) 
             "rows": sorted(tier_rows, key=lambda row: (-(row["water_pct"] or 0), row["code"])),
         }
 
-    latest_dates = sorted({row["probe_date"] for row in rows if row["probe_date"]})
+    published = published_run_dates(db)
+    # 水线 = 最新一条"可见"探测的业务日：已发布巡检日 + seed 基线历史；
+    # 进行中/失败批次的半成品已在 load_probes 被过滤，不会把水线推到未发布日期。
+    visible_dates = sorted({row["probe_date"] for row in rows if row["probe_date"]})
+    waterline = visible_dates[-1] if visible_dates else None
     return {
         "tiers": tiers,
         "totals": {
@@ -157,8 +190,9 @@ def board(db: Session, *, layer: str | None = None, keyword: str | None = None) 
             "green": sum(1 for row in rows if row["grade"] == Grade.GREEN.value),
             "unknown": sum(1 for row in rows if row["grade"] == Grade.UNKNOWN.value),
         },
-        "waterline": latest_dates[-1] if latest_dates else None,
+        "waterline": waterline,
         "calibration_days": settings.calibration_days,
+        "latest_published": max(published).isoformat() if published else None,
     }
 
 
@@ -201,7 +235,8 @@ def _probes_window(db: Session, table_id: int, days: int) -> list[FreshnessProbe
         .where(FreshnessProbe.table_id == table_id)
         .order_by(FreshnessProbe.probe_date)
     )
-    rows = list(db.scalars(stmt))
+    visible_dates = visible_probe_dates(db)
+    rows = [row for row in db.scalars(stmt) if _is_visible(row, visible_dates)]
     if not rows:
         return []
     cutoff = rows[-1].probe_date - timedelta(days=days)

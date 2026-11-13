@@ -14,11 +14,25 @@
 
 | 模块 | 页面 | 说明 |
 | --- | --- | --- |
-| 新鲜度看板 | `/board` | 40 张表按 P0/P1/P2 分栏，三色灯 + 条带水位条；一键运行今日探测 |
+| 新鲜度看板 | `/board` | 40 张表按 P0/P1/P2 分栏，三色灯 + 条带水位条；一键运行/续跑今日探测，标明批次状态 |
+| 巡检批次 | `/runs` | 每个业务日一个批次：进行中/已发布/失败三态、断点进度、失败表明细、失败后一键续跑 |
 | 表详情 | `/tables/:code` | 近 30 天延迟曲线（SVG 手绘）、P50/P90/P95、上游链逐跳延迟、该表违约记录 |
 | SLA 策略 | `/policies` | 三档容忍分钟 / 连续升级阈值 / 通知口径；近 30 天真实回放试算 |
 | 违约台账 | `/breaches` | 筛选、上游归因（主因表 + 贡献%）、认领、复盘、导出复盘 CSV / Markdown |
 | 登录 | `/login` | 三角色，低权角色调高权接口返回真实 403 |
+
+### 巡检批次：独立状态、断点续跑、整批发布（夜间 400 表巡检不被单表超时打断）
+
+- **独立运行状态**：每个业务日至多一个 `probe_runs` 批次，状态机 `running → published / failed`；
+  批次内每张表一条 `probe_run_items` 明细（pending/done/failed），断点落在最后完成的表。
+- **失败不中断整批、可续跑**：单表采集超时/异常只把该表与批次标记为 `failed`，已完成探测逐条提交保留；
+  再次触发从最后完成位置继续，`done` 的表直接跳过（**不重复写入探测**），`failed` 的表重试。
+- **重复运行不新增批次**：同日重复调用复用同一批次——进行中/失败续跑，已发布幂等返回；
+  并发触发由 `run_date` 唯一约束 + 心跳陈旧接管（默认 300s 无心跳视为 worker 崩溃）兜底。
+- **整批校验通过才发布**：全部明细 done 且探测条数与表数一致后，才统一判级、检测违约并置为 `published`；
+  看板、表详情、违约台账只读取已发布批次（`probe` 来源）与 seed 基线（`seed` 来源），
+  进行中/失败的半成品不会提前上看板，值班不会再把半批水位当成整体已恢复。
+- 故障注入开关 `PROBE_FAIL_TABLES`（逗号分隔表 code）仅用于排障演练，默认关闭。
 
 ### 两个后端真算算法（前端只展示，不硬编码）
 
@@ -104,6 +118,7 @@ gb-581/
 ├── backend/
 │   ├── Dockerfile  requirements.txt
 │   ├── migrations/0001_initial.sql   # 与 models 一致的 DDL 快照
+│   │                  0002_probe_run_checkpoint.sql  # 批次状态机/断点/发布闸门增量 DDL
 │   ├── scripts/
 │   │   ├── demo_config.py      # 40 张表 / 策略 / 账号 / 违约覆写（数据规格）
 │   │   ├── seed_demo.py        # 幂等 seed，打印 SEED_SUMMARY
@@ -112,9 +127,9 @@ gb-581/
 │       ├── config/   app.py settings.py database.py celery_app.py
 │       ├── constants/ enums.py roles.py limits.py error_codes.py
 │       ├── models/    table_asset.py freshness_probe.py sla_policy.py sla_breach.py
-│       │              user.py audit.py probe_run.py
+│       │              user.py audit.py probe_run.py probe_run_item.py
 │       ├── schemas/   auth.py table.py freshness.py policy.py breach.py common.py
-│       ├── services/  freshness_service.py breach_service.py probe_service.py
+│       ├── services/  freshness_service.py breach_service.py probe_service.py run_core.py
 │       │              policy_service.py export_service.py table_service.py
 │       │              auth_service.py audit_service.py fixture_source.py
 │       ├── controllers/ table/probe/policy/breach/auth/export_controller.py
@@ -130,8 +145,9 @@ gb-581/
 │       ├── constants/ enums.ts roles.ts ui.ts
 │       ├── hooks/     useAsync.ts useAuth.ts useToast.ts useClock.ts
 │       ├── components/common/ TierLamp WaterBar DelayCurve SeverityTag EmptyState Toasts
+│       │                         RunStatusBadge RunBanner
 │       ├── components/layout/ AppShell.tsx
-│       ├── pages/     Login Board TableDetail Policies Breaches
+│       ├── pages/     Login Board Runs TableDetail Policies Breaches
 │       ├── router/    index.tsx guards.tsx
 │       ├── utils/     format.ts errorMessage.ts storage.ts
 │       └── styles/    tokens.css global.css
@@ -154,6 +170,9 @@ gb-581/
 | `RATE_LIMIT_WRITE_PER_MINUTE` | `120` | 写接口（探测/检测/策略/导出）额度 |
 | `APP_TIMEZONE_OFFSET_MINUTES` | `480` | 业务时区 UTC+8 |
 | `CALIBRATION_DAYS` | `30` | 新鲜度分位基线窗口 |
+| `PROBE_FAIL_TABLES` | （空） | 排障演练用：逗号分隔表 code，命中表采集失败以验证断点续跑；生产留空 |
+| `PROBE_TABLE_TIMEOUT_SECONDS` | `30` | 单表采集超时秒数，超时挂起该表与整批、等待续跑 |
+| `RUN_STALE_SECONDS` | `300` | running 批次心跳陈旧阈值，超过视为 worker 崩溃可被安全接管 |
 | `NPM_REGISTRY` | `https://registry.npmmirror.com` | 前端构建 npm 源（Dockerfile ARG） |
 
 ## Docker 说明
@@ -191,6 +210,8 @@ npm run dev          # http://localhost:5173，/api 代理到 19254
 | `ProbeStatus`（ok/late/early/missing） | `constants/enums.py`、`models/freshness_probe.py`、`services/fixture_source.py`、`services/freshness_service.py` | `constants/enums.ts`（`PROBE_STATUS_LABELS`）、`pages/TableDetail.tsx` |
 | `BreachSeverity`（warning/severe/escalated） | `constants/enums.py`、`services/breach_service.py`、`services/export_service.py` | `constants/enums.ts`（`SEVERITY_LABELS`）、`components/common/SeverityTag.tsx`、`pages/Breaches.tsx` |
 | `HandlingStatus`（open/claimed/resolved） | `constants/enums.py`、`models/sla_breach.py`、`services/breach_service.py` | `constants/enums.ts`（`HANDLING_LABELS`）、`pages/Breaches.tsx` |
+| `RunStatus`（running/published/failed） | `constants/enums.py`、`models/probe_run.py`、`services/probe_service.py`、`services/run_core.py` | `constants/enums.ts`（`RUN_STATUS_LABELS`）、`pages/Board.tsx`、`pages/Runs.tsx`、`components/common/RunStatusBadge.tsx` |
+| `ProbeItemStatus`（pending/done/failed） | `constants/enums.py`、`models/probe_run_item.py`、`services/probe_service.py` | `constants/enums.ts`（`PROBE_ITEM_STATUS_LABELS`）、`components/common/RunBanner.tsx` |
 | `Layer`（ods/dwd/dws/ads） | `constants/enums.py`、`models/table_asset.py`、`services/table_service.py` | `constants/enums.ts`（`LAYER_LABELS`）、`pages/Board.tsx`、`pages/TableDetail.tsx` |
 
 ## 接口一览（统一 `/api` 前缀）
@@ -200,7 +221,8 @@ POST /api/auth/login                  GET  /api/auth/me
 GET  /api/tables                      GET  /api/tables/{code}
 GET  /api/tables/{code}/freshness     PATCH /api/tables/{code}          (admin)
 GET  /api/dashboard/health
-POST /api/probes/run                  (admin/ops)  GET /api/probes/status  GET /api/probes
+POST /api/probes/run                  (admin/ops)  GET /api/probes/status
+GET  /api/probes/runs                 GET /api/probes/runs/{id}        GET /api/probes
 GET  /api/policies                    PATCH /api/policies/{tier} (admin)
 POST /api/policies/preview            (admin/ops)
 GET  /api/breaches                    GET  /api/breaches/summary

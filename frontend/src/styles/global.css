@@ -1133,6 +1133,152 @@ input[type='number'] {
   }
 }
 
+/* ---------- 巡检批次：状态徽标 / 进度条 / 发布横幅 / 批次列表 ---------- */
+.run-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-tight);
+  font-size: var(--step-xs);
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+.run-badge .run-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.run-badge.run-published {
+  color: var(--lamp-green);
+  border-color: oklch(0.742 0.088 154 / 0.45);
+  background: var(--lamp-green-dim);
+}
+.run-badge.run-running {
+  color: var(--lamp-yellow);
+  border-color: oklch(0.822 0.098 92 / 0.5);
+  background: var(--lamp-yellow-dim);
+}
+.run-badge.run-running .run-dot {
+  animation: run-pulse 1.4s ease-in-out infinite;
+}
+.run-badge.run-failed {
+  color: var(--lamp-red);
+  border-color: oklch(0.638 0.148 27 / 0.55);
+  background: var(--lamp-red-dim);
+}
+@keyframes run-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+.run-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: var(--radius-tight);
+  margin-bottom: var(--gap-4);
+  background: var(--ink-900);
+}
+.run-banner.banner-running {
+  border-left-color: var(--lamp-yellow);
+}
+.run-banner.banner-failed {
+  border-left-color: var(--lamp-red);
+}
+.run-banner.banner-published {
+  border-left-color: var(--lamp-green);
+}
+.run-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.run-banner-title {
+  font-size: var(--step-md);
+  font-weight: 600;
+}
+.run-banner-sub {
+  color: var(--ink-400);
+  font-size: var(--step-sm);
+}
+.run-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.run-progress-track {
+  position: relative;
+  flex: 1;
+  height: 8px;
+  background: var(--ink-800);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-tight);
+  overflow: hidden;
+}
+.run-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--signal);
+  transition: width 0.4s var(--ease-out);
+}
+.run-banner.banner-failed .run-progress-fill {
+  background: var(--lamp-red);
+}
+.run-banner.banner-published .run-progress-fill {
+  background: var(--lamp-green);
+}
+.run-progress-num {
+  font-size: var(--step-sm);
+  color: var(--ink-300);
+  white-space: nowrap;
+}
+.run-fail-reason {
+  font-size: var(--step-sm);
+  color: var(--lamp-red);
+}
+.run-item-list {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-tight);
+}
+.run-item-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: var(--step-sm);
+}
+.run-item-row:last-child {
+  border-bottom: none;
+}
+.run-item-row .code {
+  flex: 1;
+}
+.run-item-err {
+  color: var(--lamp-red);
+  font-size: var(--step-xs);
+}
+.ledger tbody tr.row-failed {
+  background: var(--lamp-red-dim);
+}
+.ledger tbody tr.row-failed:hover {
+  background: oklch(0.638 0.148 27 / 0.24);
+}
+
 @media (max-width: 1023px) {
   .shell {
     grid-template-columns: 1fr;
